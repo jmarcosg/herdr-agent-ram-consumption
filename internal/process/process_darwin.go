@@ -129,15 +129,24 @@ func Cwd(pid int) string {
 func OpenFiles(pid int) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "lsof", "-n", "-P", "-a", "-p", strconv.Itoa(pid), "-Fn").Output()
+	out, err := exec.CommandContext(ctx, "lsof", "-n", "-P", "-a", "-p", strconv.Itoa(pid), "-Ftn").Output()
 	if err != nil && len(out) == 0 {
 		return nil
 	}
 	var files []string
+	regular := false
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	for sc.Scan() {
-		if path, ok := strings.CutPrefix(sc.Text(), "n"); ok && filepath.IsAbs(path) {
-			files = append(files, path)
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "f"): // new fd record
+			regular = false
+		case strings.HasPrefix(line, "t"):
+			regular = line == "tREG"
+		case strings.HasPrefix(line, "n"):
+			if path := line[1:]; regular && filepath.IsAbs(path) {
+				files = append(files, path)
+			}
 		}
 	}
 	return files

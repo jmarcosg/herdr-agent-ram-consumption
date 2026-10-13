@@ -150,6 +150,11 @@ func TestOpenFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = null.Close() })
 	want, err := filepath.EvalSymlinks(f.Name())
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +168,16 @@ func TestOpenFiles(t *testing.T) {
 	}
 	if !slices.Contains(got, want) {
 		t.Fatalf("OpenFiles missing %q", want)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ = filepath.EvalSymlinks(cwd)
+	for _, p := range got {
+		if p == "/dev/null" || p == cwd {
+			t.Fatalf("OpenFiles must only list regular files, found %q", p)
+		}
 	}
 }
 
