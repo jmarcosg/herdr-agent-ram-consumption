@@ -1,0 +1,1 @@
+{"timestamp":"2026-10-05T12:01:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_id":"019a1234-5678-7000-8000-000000000001","thread_settings":{"model":"gpt-5.4-mini","model_provider_id":"openai","cwd":"/tmp/project"}}}

@@ -1,0 +1,3 @@
+{"timestamp":"2026-10-05T12:02:00.000Z","type":"compacted","payload":{"message":"Conversation summary","replacement_history":[]}}
+{"timestamp":"2026-10-05T12:02:01.000Z","type":"turn_context","payload":{"cwd":"/tmp/project","model":"gpt-5.4"}}
+{"timestamp":"2026-10-05T12:02:02.000Z","type":"event_msg","payload":{"type":"context_compacted"}}
