@@ -42,12 +42,36 @@ func TestSecondDaemonExits(t *testing.T) {
 		t.Fatalf("test lock: %v %v", held, err)
 	}
 	defer held.Close()
+	defer func(a int, r time.Duration) { lockAttempts, lockRetry = a, r }(lockAttempts, lockRetry)
+	lockAttempts, lockRetry = 3, 10*time.Millisecond
 	f := &fakeTicker{}
 	if err := runDaemon(context.Background(), dir, f, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	if f.ticks.Load() != 0 {
 		t.Error("second daemon must not tick")
+	}
+}
+
+func TestDaemonRetriesLockHeldByProbe(t *testing.T) {
+	defer func(a int, r time.Duration) { lockAttempts, lockRetry = a, r }(lockAttempts, lockRetry)
+	lockAttempts, lockRetry = 20, 10*time.Millisecond
+	dir := t.TempDir()
+	probe, err := tryLock(dir)
+	if err != nil || probe == nil {
+		t.Fatalf("probe lock: %v %v", probe, err)
+	}
+	f := &fakeTicker{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runDaemon(ctx, dir, f, time.Hour) }()
+	time.Sleep(100 * time.Millisecond)
+	probe.Close()
+
+	waitFor(t, func() bool { _, ok := readPID(dir); return ok && f.ticks.Load() >= 1 })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

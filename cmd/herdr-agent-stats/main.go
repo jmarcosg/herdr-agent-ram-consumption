@@ -33,6 +33,12 @@ const (
 	descendCap   = 256
 )
 
+// Package vars so tests can shrink the startup lock retry window.
+var (
+	lockAttempts = 5
+	lockRetry    = 50 * time.Millisecond
+)
+
 func main() {
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: herdr-agent-stats daemon|nudge|stop|once")
@@ -136,9 +142,20 @@ type ticker interface {
 // an immediate tick, then clears the tokens it wrote. A second instance
 // returns nil at once.
 func runDaemon(ctx context.Context, dir string, d ticker, every time.Duration) error {
-	lock, err := tryLock(dir)
-	if err != nil {
-		return err
+	// A nudge/stop probe may hold the lock for a moment; retry before concluding
+	// another daemon runs.
+	var lock *os.File
+	for i := 0; i < lockAttempts; i++ {
+		var err error
+		if lock, err = tryLock(dir); err != nil {
+			return err
+		}
+		if lock != nil {
+			break
+		}
+		if i < lockAttempts-1 {
+			time.Sleep(lockRetry)
+		}
 	}
 	if lock == nil {
 		return nil
