@@ -40,7 +40,11 @@ type paneState struct {
 	pid      int
 	detector agentctx.Detector
 	last     map[string]string // tokens as last reported
+	swept    bool              // stale tokens of a previous instance were cleared
 }
+
+// knownTokens are every token name the daemon can set.
+var knownTokens = []string{"agent_model", "agent_ctx_ok", "agent_ctx_warn", "agent_ctx_crit", "agent_mem"}
 
 // Daemon holds per-pane state. It is not safe for concurrent use.
 type Daemon struct {
@@ -146,8 +150,18 @@ func (d *Daemon) report(ctx context.Context, paneID string, st *paneState, want 
 			set[k] = v
 		}
 	}
+	// A previous instance may have died without clearing: the first time a pane
+	// is seen, drop every token we could have left behind, not just what we know.
+	stale := maps.Clone(st.last)
+	if !st.swept {
+		stale = make(map[string]string, len(knownTokens))
+		for _, k := range knownTokens {
+			stale[k] = ""
+		}
+		maps.Copy(stale, st.last)
+	}
 	var clear []string
-	for k := range st.last {
+	for k := range stale {
 		if _, ok := want[k]; !ok {
 			clear = append(clear, k)
 		}
@@ -161,7 +175,7 @@ func (d *Daemon) report(ctx context.Context, paneID string, st *paneState, want 
 	if err := d.d.Herdr.ReportTokens(cctx, paneID, set, clear); err != nil {
 		return fmt.Errorf("report tokens: %w", err)
 	}
-	st.last = maps.Clone(want)
+	st.last, st.swept = maps.Clone(want), true
 	return nil
 }
 

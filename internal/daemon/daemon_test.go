@@ -304,3 +304,41 @@ func TestClear(t *testing.T) {
 		}
 	}
 }
+
+func TestFirstSightClearsEveryOtherKnownToken(t *testing.T) {
+	h := &fakeHerdr{
+		agents: []herdr.Agent{{PaneID: "p1", Kind: "claude"}},
+		infos:  map[string]herdr.ProcessInfo{"p1": claudeInfo(10)},
+	}
+	d := newDaemon(h, func(string) agentctx.Detector { return nil })
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		if err := d.Tick(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(h.reports) != 1 {
+		t.Fatalf("reports = %d, want 1 (second identical tick sends nothing)", len(h.reports))
+	}
+	got := h.reports[0]
+	if !reflect.DeepEqual(got.set, map[string]string{"agent_mem": "1.0 GB"}) ||
+		!reflect.DeepEqual(got.clear, []string{"agent_ctx_crit", "agent_ctx_ok", "agent_ctx_warn", "agent_model"}) {
+		t.Errorf("first tick = %+v", got)
+	}
+}
+
+func TestFirstSightClearRetriedAfterFailedReport(t *testing.T) {
+	h := &fakeHerdr{
+		agents: []herdr.Agent{{PaneID: "p1", Kind: "claude"}},
+		infos:  map[string]herdr.ProcessInfo{"p1": claudeInfo(10)},
+	}
+	d := newDaemon(h, func(string) agentctx.Detector { return nil })
+	ctx := context.Background()
+	h.reportErr = errors.New("boom")
+	_ = d.Tick(ctx)
+	h.reportErr = nil
+	_ = d.Tick(ctx)
+	if len(h.reports) != 2 || len(h.reports[1].clear) != 4 {
+		t.Errorf("reports = %+v", h.reports)
+	}
+}
