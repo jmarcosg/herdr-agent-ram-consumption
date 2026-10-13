@@ -70,10 +70,24 @@ func (d *Daemon) Tick(ctx context.Context) error {
 			d.d.Log("pane %s: %v", a.PaneID, err)
 		}
 	}
-	for id := range d.panes {
-		if !seen[id] {
-			delete(d.panes, id)
+	// The agent left but its pane may survive: clear what we wrote. Keep the
+	// state on failure so the next tick (or Clear) retries.
+	for id, st := range d.panes {
+		if seen[id] {
+			continue
 		}
+		if len(st.last) == 0 {
+			delete(d.panes, id)
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, callTimeout)
+		err := d.d.Herdr.ReportTokens(cctx, id, nil, slices.Sorted(maps.Keys(st.last)))
+		cancel()
+		if err == nil || errors.Is(err, herdr.ErrPaneGone) {
+			delete(d.panes, id)
+			continue
+		}
+		d.d.Log("pane %s: clear departed: %v", id, err)
 	}
 	return nil
 }

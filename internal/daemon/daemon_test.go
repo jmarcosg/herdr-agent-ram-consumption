@@ -25,6 +25,8 @@ type fakeHerdr struct {
 	infos     map[string]herdr.ProcessInfo
 	infoErr   map[string]error
 	reports   []report
+	reportErr error
+	clearErr  map[string]error // per-pane error for clear-only calls
 }
 
 func (f *fakeHerdr) Agents(context.Context) ([]herdr.Agent, error) { return f.agents, f.agentsErr }
@@ -33,7 +35,10 @@ func (f *fakeHerdr) ProcessInfo(_ context.Context, id string) (herdr.ProcessInfo
 }
 func (f *fakeHerdr) ReportTokens(_ context.Context, id string, set map[string]string, clear []string) error {
 	f.reports = append(f.reports, report{id, set, clear})
-	return nil
+	if len(set) == 0 && f.clearErr[id] != nil {
+		return f.clearErr[id]
+	}
+	return f.reportErr
 }
 
 type fakeDet struct {
@@ -190,11 +195,65 @@ func TestForgetsClosedPanes(t *testing.T) {
 	ctx := context.Background()
 	_ = d.Tick(ctx)
 	h.agents = nil
-	if err := d.Tick(ctx); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 2; i++ {
+		if err := d.Tick(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if len(h.reports) != 1 || len(d.panes) != 0 {
+	if len(h.reports) != 2 || len(d.panes) != 0 {
+		t.Fatalf("reports=%d panes=%d", len(h.reports), len(d.panes))
+	}
+	got := h.reports[1]
+	if got.pane != "p1" || len(got.set) != 0 ||
+		!reflect.DeepEqual(got.clear, []string{"agent_ctx_ok", "agent_mem", "agent_model"}) {
+		t.Errorf("departure clear = %+v", got)
+	}
+}
+
+func TestDepartedClearRetried(t *testing.T) {
+	h, det := oneClaude(17)
+	d := newDaemon(h, func(string) agentctx.Detector { return det })
+	ctx := context.Background()
+	_ = d.Tick(ctx)
+	h.agents = nil
+	h.clearErr = map[string]error{"p1": errors.New("boom")}
+	_ = d.Tick(ctx)
+	if len(d.panes) != 1 {
+		t.Fatal("state dropped despite failed clear")
+	}
+	h.clearErr = nil
+	_ = d.Tick(ctx)
+	if len(h.reports) != 3 || len(d.panes) != 0 {
 		t.Errorf("reports=%d panes=%d", len(h.reports), len(d.panes))
+	}
+}
+
+func TestFailedReportResendsSameSet(t *testing.T) {
+	h, det := oneClaude(17)
+	d := newDaemon(h, func(string) agentctx.Detector { return det })
+	ctx := context.Background()
+	h.reportErr = errors.New("boom")
+	_ = d.Tick(ctx)
+	h.reportErr = nil
+	_ = d.Tick(ctx)
+	if len(h.reports) != 2 || !reflect.DeepEqual(h.reports[0], h.reports[1]) {
+		t.Errorf("reports = %+v", h.reports)
+	}
+}
+
+func TestFailedClearRetried(t *testing.T) {
+	h, det := oneClaude(17)
+	d := newDaemon(h, func(string) agentctx.Detector { return det })
+	ctx := context.Background()
+	_ = d.Tick(ctx)
+	h.reports = nil
+	h.reportErr = errors.New("boom")
+	if err := d.Clear(ctx); err == nil {
+		t.Fatal("want error")
+	}
+	h.reportErr = nil
+	if err := d.Clear(ctx); err != nil || len(h.reports) != 2 {
+		t.Errorf("err=%v reports=%d", err, len(h.reports))
 	}
 }
 
