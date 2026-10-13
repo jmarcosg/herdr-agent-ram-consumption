@@ -375,3 +375,25 @@ func TestDatabaseGoneIsUnknownAndReresolved(t *testing.T) {
 		t.Fatalf("OpenFiles called %d times, want 2 (re-resolved when the db vanished)", e.opened)
 	}
 }
+
+func TestUnresolvedDatabaseBacksOffBeforeRetrying(t *testing.T) {
+	e := setup(t)
+	e.session("s", e.project, 2_000_000)
+	e.message("s", assistant("deepseek", "deepseek-v4-pro", 100_000, 1, 0, 0, 0))
+	e.open = map[int][]string{}
+	d := e.detector()
+	wantNone(t, d, e.pane())
+	for i := 0; i < 4; i++ {
+		e.now = e.now.Add(2 * time.Second)
+		wantNone(t, d, e.pane())
+	}
+	if e.opened != 1 {
+		t.Fatalf("OpenFiles called %d times within the back-off, want 1", e.opened)
+	}
+	e.open = map[int][]string{agentPID: {e.db}}
+	e.now = e.now.Add(2 * time.Second) // 10s after the failed lookup
+	want(t, d, e.pane(), "DeepSeek V4 Pro", 10, true)
+	if e.opened != 2 {
+		t.Errorf("OpenFiles called %d times after the back-off, want 2", e.opened)
+	}
+}

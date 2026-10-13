@@ -409,3 +409,25 @@ func TestCodexChildHoldingRolloutIsFollowed(t *testing.T) {
 	})
 	want(t, d, "gpt-5.4", 20, true)
 }
+
+func TestUnresolvedRolloutBacksOffBeforeRetrying(t *testing.T) {
+	e := setup(t, fixture(t, "context.jsonl"))
+	e.open = nil
+	clock := time.Unix(1000, 0)
+	d := e.detector()
+	d.(*detector).now = func() time.Time { return clock }
+	wantNone(t, d)
+	for i := 0; i < 4; i++ {
+		clock = clock.Add(2 * time.Second)
+		wantNone(t, d)
+	}
+	if e.calls != 1 {
+		t.Fatalf("OpenFiles called %d times within the back-off, want 1", e.calls)
+	}
+	e.open = []string{e.rollup}
+	clock = clock.Add(2 * time.Second) // 10s after the failed lookup
+	want(t, d, "gpt-5.4", 20, true)
+	if e.calls != 2 {
+		t.Errorf("OpenFiles called %d times after the back-off, want 2", e.calls)
+	}
+}

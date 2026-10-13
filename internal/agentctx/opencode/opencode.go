@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	name      = "opencode"
-	maxProcs  = 16
-	messages  = 200
-	reresolve = 30 * time.Second
+	name       = "opencode"
+	maxProcs   = 16
+	messages   = 200
+	reresolve  = 30 * time.Second
+	retryAfter = 10 * time.Second // back-off after a lookup that found nothing
 )
 
 type detector struct {
@@ -37,6 +38,7 @@ type detector struct {
 	modelsPath string
 	shared     bool
 	resolvedAt time.Time
+	nextScan   time.Time
 
 	models modelCache
 }
@@ -48,6 +50,7 @@ func (d *detector) Read(p agentctx.Pane) (agentctx.Reading, bool) {
 	if p.AgentPID != d.pid {
 		d.pid = p.AgentPID
 		d.resolved = false
+		d.nextScan = time.Time{}
 	}
 	if d.resolved {
 		if _, err := os.Stat(d.db); err != nil || d.now().Sub(d.resolvedAt) >= reresolve {
@@ -55,7 +58,11 @@ func (d *detector) Read(p agentctx.Pane) (agentctx.Reading, bool) {
 		}
 	}
 	if !d.resolved {
+		if d.now().Before(d.nextScan) {
+			return agentctx.Reading{}, false
+		}
 		if !d.resolve(p) {
+			d.nextScan = d.now().Add(retryAfter)
 			return agentctx.Reading{}, false
 		}
 	}

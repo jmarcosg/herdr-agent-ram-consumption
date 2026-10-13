@@ -22,6 +22,7 @@ const (
 	envHome    = "CODEX_HOME"
 	maxProcs   = 16
 	reresolve  = 30 * time.Second
+	retryAfter = 10 * time.Second // back-off after a lookup that found nothing
 	maxHeader  = 64 * 1024
 	idLen      = 36
 	stampLen   = 20 // "2026-10-05T12-00-00-"
@@ -38,6 +39,7 @@ type detector struct {
 	path       string
 	id         string
 	resolvedAt time.Time
+	nextScan   time.Time
 
 	tail    jsonl.Tail
 	model   string
@@ -53,16 +55,21 @@ func (d *detector) Read(p agentctx.Pane) (agentctx.Reading, bool) {
 	if p.AgentPID != d.pid {
 		d.forget()
 		d.pid = p.AgentPID
+		d.nextScan = time.Time{}
 	}
 	// /new, /resume and forks start a new rollout inside the same process, so
 	// the cached resolution expires.
 	if d.path == "" || d.now().Sub(d.resolvedAt) >= reresolve {
+		if d.path == "" && d.now().Before(d.nextScan) {
+			return agentctx.Reading{}, false
+		}
 		path, id, ok := d.rolloutPath(p)
 		switch {
 		case ok && path != d.path:
 			d.forget()
 			d.path, d.id = path, id
 		case !ok && d.path == "":
+			d.nextScan = d.now().Add(retryAfter)
 			return agentctx.Reading{}, false
 		}
 		d.resolvedAt = d.now()
@@ -73,6 +80,7 @@ func (d *detector) Read(p agentctx.Pane) (agentctx.Reading, bool) {
 		d.clearState()
 		if errors.Is(err, fs.ErrNotExist) {
 			d.path, d.id = "", ""
+			d.nextScan = time.Time{}
 		}
 		return agentctx.Reading{}, false
 	}
