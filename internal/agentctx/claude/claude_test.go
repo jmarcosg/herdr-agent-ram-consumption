@@ -176,3 +176,17 @@ func TestClaudeSettingsRequestWindow(t *testing.T) {
 		t.Errorf("percent = %d, want 10 via settings", got.Percent)
 	}
 }
+
+func TestClaudeSettingsReadFromConfigDir(t *testing.T) {
+	e := setup(t)
+	cfg := t.TempDir()
+	e.write(t, cfg, assistant("claude-sonnet-4-5-20250929", 100_000, 0, 0, ""))
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(`{"model":"sonnet[1m]"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.agent = map[string]string{"CLAUDE_CONFIG_DIR": cfg}
+	got, ok := e.detector().Read(e.pane)
+	if !ok || got.Percent != 10 {
+		t.Errorf("got %+v ok=%v, want 10%% (1M window via settings in CLAUDE_CONFIG_DIR)", got, ok)
+	}
+}

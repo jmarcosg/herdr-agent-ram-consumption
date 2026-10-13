@@ -78,7 +78,7 @@ func (d *detector) Read(p agentctx.Pane) (agentctx.Reading, bool) {
 
 	out := agentctx.Reading{Model: model.Pretty(d.last.model)}
 	if !d.compacted {
-		env, requested := d.limits(agentEnv, p)
+		env, requested := d.limits(dir, agentEnv, p)
 		out.Percent = percent(d.last.tokens, Window(d.last.model, d.last.tokens, env, requested))
 		out.HasPercent = true
 	}
@@ -126,12 +126,13 @@ func (d *detector) mark(line []byte) {
 }
 
 // limits builds the env and requested model Window needs: the agent's env,
-// overridden by the "env" blocks of the settings files, and the requested model
+// overridden by the "env" blocks of the settings files (user settings live in
+// the resolved config dir), and the requested model
 // from --model, then ANTHROPIC_MODEL, then settings "model".
-func (d *detector) limits(agentEnv map[string]string, p agentctx.Pane) (map[string]string, string) {
+func (d *detector) limits(dir string, agentEnv map[string]string, p agentctx.Pane) (map[string]string, string) {
 	project := filepath.Join(p.Cwd, ".claude")
 	paths := []string{
-		filepath.Join(d.host.Home, ".claude", "settings.json"),
+		filepath.Join(dir, "settings.json"),
 		filepath.Join(project, "settings.json"),
 		filepath.Join(project, "settings.local.json"),
 	}
