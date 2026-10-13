@@ -1,0 +1,26 @@
+id = "jmarcosg.agent-stats"
+name = "Agent Stats"
+version = "0.1.0"
+min_herdr_version = "0.9.3"
+description = "Model, context usage and RAM for every agent in the Agents sidebar."
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["go", "build", "-o", "herdr-agent-stats", "./cmd/herdr-agent-stats"]
+
+[[startup]]
+command = ["./herdr-agent-stats", "daemon"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["./herdr-agent-stats", "nudge"]
+
+[[actions]]
+id = "restart"
+title = "Agent stats: restart daemon"
+command = ["sh", "-c", "./herdr-agent-stats stop; ./herdr-agent-stats daemon &"]
+
+[[actions]]
+id = "stop"
+title = "Agent stats: stop and clear"
+command = ["./herdr-agent-stats", "stop"]
