@@ -145,15 +145,17 @@ func runDaemon(ctx context.Context, dir string, d ticker, every time.Duration) e
 	}
 	defer lock.Close() // closing the fd releases the flock
 
+	// Handle SIGUSR1 before the pid file exists: an early nudge must not kill us.
+	// (SIGTERM/SIGINT are handled by the caller's NotifyContext.)
+	nudge := make(chan os.Signal, 1)
+	signal.Notify(nudge, syscall.SIGUSR1)
+	defer signal.Stop(nudge)
+
 	pidFile := filepath.Join(dir, "daemon.pid")
 	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return err
 	}
 	defer os.Remove(pidFile)
-
-	nudge := make(chan os.Signal, 1)
-	signal.Notify(nudge, syscall.SIGUSR1)
-	defer signal.Stop(nudge)
 
 	tick := func() {
 		if err := d.Tick(ctx); err != nil && ctx.Err() == nil {
@@ -205,9 +207,25 @@ func readPID(dir string) (int, bool) {
 	return pid, err == nil && pid > 0
 }
 
+// livePID returns the daemon's pid only if the lock is held by someone else.
+// A free lock means no daemon runs, so a leftover pid file is stale (the pid may
+// have been reused): it is removed and never signalled.
+func livePID(dir string) (int, bool) {
+	l, err := tryLock(dir)
+	if err != nil {
+		return 0, false
+	}
+	if l != nil {
+		os.Remove(filepath.Join(dir, "daemon.pid"))
+		l.Close()
+		return 0, false
+	}
+	return readPID(dir)
+}
+
 // signalDaemon sends sig to the running daemon; no daemon is not an error.
 func signalDaemon(dir string, sig syscall.Signal) error {
-	pid, ok := readPID(dir)
+	pid, ok := livePID(dir)
 	if !ok {
 		return nil
 	}
@@ -219,8 +237,7 @@ func signalDaemon(dir string, sig syscall.Signal) error {
 
 // stopDaemon asks the daemon to exit and waits for its lock to free.
 func stopDaemon(dir string, wait time.Duration) error {
-	pid, ok := readPID(dir)
-	if !ok || syscall.Kill(pid, 0) != nil {
+	if _, ok := livePID(dir); !ok {
 		return nil
 	}
 	if err := signalDaemon(dir, syscall.SIGTERM); err != nil {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
@@ -92,6 +93,32 @@ func TestNudgeAndStopWithoutDaemon(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "daemon.pid"), []byte(strconv.Itoa(1<<22+12345)), 0o644)
 	if err := stopDaemon(dir, time.Second); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestStalePidFileIsNeverSignalled(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cmd.Process.Kill(); cmd.Wait() }()
+	pidFile := filepath.Join(dir, "daemon.pid")
+
+	for name, f := range map[string]func() error{
+		"nudge": func() error { return signalDaemon(dir, syscall.SIGUSR1) },
+		"stop":  func() error { return stopDaemon(dir, time.Second) },
+	} {
+		os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
+		if err := f(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if syscall.Kill(cmd.Process.Pid, 0) != nil {
+			t.Fatalf("%s signalled the unrelated process", name)
+		}
+		if _, err := os.Stat(pidFile); !os.IsNotExist(err) {
+			t.Errorf("%s: stale pid file not removed", name)
+		}
 	}
 }
 
