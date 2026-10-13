@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmarcosg/herdr-agent-ram-consumption/internal/agentctx"
 )
@@ -30,9 +31,20 @@ type env struct {
 	rollup string
 }
 
+// realTemp is a temp dir with symlinks resolved (macOS /var -> /private/var),
+// as lsof reports it.
+func realTemp(t *testing.T) string {
+	t.Helper()
+	d, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 func setup(t *testing.T, content string) *env {
 	t.Helper()
-	e := &env{t: t, home: t.TempDir()}
+	e := &env{t: t, home: realTemp(t)}
 	e.codex = filepath.Join(e.home, ".codex")
 	e.rollup = e.addRollout(id, content)
 	return e
@@ -220,7 +232,7 @@ func TestFilesOutsideSessionsAreIgnored(t *testing.T) {
 func TestCodexHomeFromAgentEnv(t *testing.T) {
 	e := setup(t, "")
 	e.open = nil
-	e.codex = filepath.Join(t.TempDir(), "custom")
+	e.codex = filepath.Join(realTemp(t), "custom")
 	e.agent = map[string]string{"CODEX_HOME": e.codex}
 	e.rollup = e.addRollout(id, fixture(t, "context.jsonl"))
 	want(t, e.detector(), "gpt-5.4", 20, true)
@@ -228,18 +240,96 @@ func TestCodexHomeFromAgentEnv(t *testing.T) {
 
 func TestHostHomeIgnoredWhenCodexHomeSet(t *testing.T) {
 	e := setup(t, fixture(t, "context.jsonl"))
-	e.agent = map[string]string{"CODEX_HOME": filepath.Join(t.TempDir(), "other")}
+	e.agent = map[string]string{"CODEX_HOME": filepath.Join(realTemp(t), "other")}
 	wantNone(t, e.detector())
 }
 
-func TestRolloutPathResolvedOncePerPid(t *testing.T) {
+func TestRolloutPathCachedWithinTTLAndRefreshedAfter(t *testing.T) {
 	e := setup(t, fixture(t, "context.jsonl"))
+	clock := time.Unix(1000, 0)
 	d := e.detector()
+	d.(*detector).now = func() time.Time { return clock }
 	want(t, d, "gpt-5.4", 20, true)
 	e.append(tokenCount("250000", "125000"))
+	clock = clock.Add(29 * time.Second)
 	want(t, d, "gpt-5.4", 50, true)
 	if e.calls != 1 {
 		t.Errorf("OpenFiles called %d times, want 1", e.calls)
+	}
+
+	// /new: the agent now holds a different rollout, the old file still exists.
+	next := "019a1234-5678-7000-8000-000000000003"
+	e.open = nil
+	e.addRollout(next, strings.ReplaceAll(strings.ReplaceAll(fixture(t, "context.jsonl"), id, next), "gpt-5.4", "gpt-6"))
+	clock = clock.Add(2 * time.Second)
+	want(t, d, "gpt-6", 20, true)
+	if e.calls != 2 {
+		t.Errorf("OpenFiles called %d times, want 2", e.calls)
+	}
+}
+
+func TestFailedRefreshKeepsCachedRollout(t *testing.T) {
+	e := setup(t, fixture(t, "context.jsonl"))
+	clock := time.Unix(1000, 0)
+	d := e.detector()
+	d.(*detector).now = func() time.Time { return clock }
+	want(t, d, "gpt-5.4", 20, true)
+	e.open = nil
+	clock = clock.Add(time.Minute)
+	want(t, d, "gpt-5.4", 20, true)
+}
+
+func TestSymlinkedHomes(t *testing.T) {
+	real := filepath.Join(t.TempDir(), "real")
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	// lsof reports resolved paths; EvalSymlinks on macOS also resolves /var.
+	resolved, err := filepath.EvalSymlinks(filepath.Dir(real))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		env  map[string]string
+		home func(e *env)
+		cwd  string
+	}{
+		"symlinked default":    {home: func(e *env) { e.home = link }},
+		"symlinked CODEX_HOME": {env: map[string]string{"CODEX_HOME": link}},
+		"relative CODEX_HOME":  {env: map[string]string{"CODEX_HOME": "rel"}, cwd: filepath.Dir(link)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.MkdirAll(real, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if name == "symlinked default" {
+				// ~/.codex is the symlink: HOME/.codex -> real
+				home := t.TempDir()
+				if err := os.Symlink(real, filepath.Join(home, ".codex")); err != nil {
+					t.Fatal(err)
+				}
+				e := &env{t: t, home: home, codex: real}
+				e.addRollout(id, fixture(t, "context.jsonl"))
+				e.open = []string{filepath.Join(resolved, "real", "sessions", "2026", "10", "05", "rollout-2026-10-05T12-00-00-"+id+".jsonl")}
+				want(t, e.detector(), "gpt-5.4", 20, true)
+				return
+			}
+			if name == "relative CODEX_HOME" {
+				if err := os.Symlink(real, filepath.Join(filepath.Dir(link), "rel")); err != nil && !os.IsExist(err) {
+					t.Fatal(err)
+				}
+			}
+			e := &env{t: t, home: t.TempDir(), codex: real, agent: tc.env}
+			e.addRollout(id, fixture(t, "context.jsonl"))
+			e.open = []string{filepath.Join(resolved, "real", "sessions", "2026", "10", "05", "rollout-2026-10-05T12-00-00-"+id+".jsonl")}
+			p := pane
+			p.Cwd = tc.cwd
+			got, ok := e.detector().Read(p)
+			if !ok || got.Model != "gpt-5.4" {
+				t.Errorf("got %+v ok=%v", got, ok)
+			}
+		})
 	}
 }
 

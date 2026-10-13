@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jmarcosg/herdr-agent-ram-consumption/internal/agentctx"
 	"github.com/jmarcosg/herdr-agent-ram-consumption/internal/jsonl"
@@ -20,6 +21,7 @@ import (
 const (
 	envHome    = "CODEX_HOME"
 	maxProcs   = 16
+	reresolve  = 30 * time.Second
 	maxHeader  = 64 * 1024
 	idLen      = 36
 	stampLen   = 20 // "2026-10-05T12-00-00-"
@@ -29,11 +31,13 @@ const (
 
 type detector struct {
 	host agentctx.Host
+	now  func() time.Time // injectable for tests
 
 	// Resolved once per agent pid: finding the rollout costs a lsof.
-	pid  int
-	path string
-	id   string
+	pid        int
+	path       string
+	id         string
+	resolvedAt time.Time
 
 	tail    jsonl.Tail
 	model   string
@@ -43,19 +47,25 @@ type detector struct {
 
 // New returns a Codex detector. It keeps incremental state, so use one
 // instance per pane.
-func New(h agentctx.Host) agentctx.Detector { return &detector{host: h} }
+func New(h agentctx.Host) agentctx.Detector { return &detector{host: h, now: time.Now} }
 
 func (d *detector) Read(p agentctx.Pane) (agentctx.Reading, bool) {
 	if p.AgentPID != d.pid {
 		d.forget()
 		d.pid = p.AgentPID
 	}
-	if d.path == "" {
-		path, id, ok := d.rolloutPath(p.AgentPID)
-		if !ok {
+	// /new, /resume and forks start a new rollout inside the same process, so
+	// the cached resolution expires.
+	if d.path == "" || d.now().Sub(d.resolvedAt) >= reresolve {
+		path, id, ok := d.rolloutPath(p)
+		switch {
+		case ok && path != d.path:
+			d.forget()
+			d.path, d.id = path, id
+		case !ok && d.path == "":
 			return agentctx.Reading{}, false
 		}
-		d.path, d.id = path, id
+		d.resolvedAt = d.now()
 	}
 
 	lines, reset, err := d.tail.Read(d.path)
@@ -80,6 +90,7 @@ func (d *detector) Read(p agentctx.Pane) (agentctx.Reading, bool) {
 
 func (d *detector) forget() {
 	d.path, d.id = "", ""
+	d.resolvedAt = time.Time{}
 	d.tail = jsonl.Tail{}
 	d.clearState()
 }
@@ -158,8 +169,10 @@ func whole(v any) (int, bool) {
 
 // rolloutPath finds the single valid rollout open by the agent or by a Codex
 // child of it. Zero or several candidates mean the pane is unknown.
-func (d *detector) rolloutPath(pid int) (path, id string, ok bool) {
+func (d *detector) rolloutPath(p agentctx.Pane) (path, id string, ok bool) {
+	pid := p.AgentPID
 	pids := []int{pid}
+	cwds := map[int]string{pid: p.Cwd}
 	if d.host.Descendants != nil {
 		for _, c := range d.host.Descendants(pid) {
 			if len(pids) >= maxProcs {
@@ -167,16 +180,17 @@ func (d *detector) rolloutPath(pid int) (path, id string, ok bool) {
 			}
 			if isCodex(c.Argv) && !slices.Contains(pids, c.PID) {
 				pids = append(pids, c.PID)
+				cwds[c.PID] = c.Cwd
 			}
 		}
 	}
 	var found []string
-	for _, p := range pids {
-		sessions := filepath.Join(d.codexHome(p), "sessions") + string(filepath.Separator)
+	for _, q := range pids {
+		sessions := filepath.Join(d.codexHome(q, cwds[q]), "sessions") + string(filepath.Separator)
 		if d.host.OpenFiles == nil {
 			break
 		}
-		for _, f := range d.host.OpenFiles(p) {
+		for _, f := range d.host.OpenFiles(q) {
 			if strings.HasPrefix(f, sessions) && sessionID(f) != "" && !slices.Contains(found, f) {
 				found = append(found, f)
 			}
@@ -194,13 +208,23 @@ func (d *detector) rolloutPath(pid int) (path, id string, ok bool) {
 	return valid[0], sessionID(valid[0]), true
 }
 
-func (d *detector) codexHome(pid int) string {
+// codexHome is the agent's CODEX_HOME (relative ones are against its cwd) or
+// ~/.codex, with symlinks resolved because lsof and /proc report real paths.
+func (d *detector) codexHome(pid int, cwd string) string {
+	home := filepath.Join(d.host.Home, ".codex")
 	if d.host.Env != nil {
 		if h := d.host.Env(pid)[envHome]; h != "" {
-			return h
+			home = h
+			if !filepath.IsAbs(home) && cwd != "" {
+				home = filepath.Join(cwd, home)
+			}
 		}
 	}
-	return filepath.Join(d.host.Home, ".codex")
+	home = filepath.Clean(home)
+	if real, err := filepath.EvalSymlinks(home); err == nil {
+		return real
+	}
+	return home
 }
 
 // isCodex reports whether one of the first two args is the codex binary or its
