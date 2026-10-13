@@ -200,3 +200,20 @@ func TestOncePrintsReadingsWithoutReporting(t *testing.T) {
 		t.Errorf("rows = %+v", rows)
 	}
 }
+
+func TestStopWaitsPastClearTimeout(t *testing.T) {
+	if stopWait <= clearTimeout {
+		t.Errorf("stopWait %v must exceed clearTimeout %v or stop reports a slow clear as a failure", stopWait, clearTimeout)
+	}
+}
+
+func TestManifestRestartDetachesDaemon(t *testing.T) {
+	b, err := os.ReadFile("../../herdr-plugin.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `command = ["sh", "-c", "./herdr-agent-stats stop; nohup ./herdr-agent-stats daemon </dev/null >/dev/null 2>&1 &"]`
+	if !bytes.Contains(b, []byte(want)) {
+		t.Errorf("restart action must detach the daemon; manifest lacks %s", want)
+	}
+}

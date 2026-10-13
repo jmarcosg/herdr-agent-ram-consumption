@@ -18,7 +18,7 @@ command = ["./herdr-agent-stats", "nudge"]
 [[actions]]
 id = "restart"
 title = "Agent stats: restart daemon"
-command = ["sh", "-c", "./herdr-agent-stats stop; ./herdr-agent-stats daemon &"]
+command = ["sh", "-c", "./herdr-agent-stats stop; nohup ./herdr-agent-stats daemon </dev/null >/dev/null 2>&1 &"]
 
 [[actions]]
 id = "stop"

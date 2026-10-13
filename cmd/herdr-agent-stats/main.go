@@ -29,7 +29,7 @@ import (
 const (
 	tickEvery    = 2 * time.Second
 	clearTimeout = 5 * time.Second
-	stopWait     = 3 * time.Second
+	stopWait     = 7 * time.Second // must outlast clearTimeout
 	descendCap   = 256
 )
 
