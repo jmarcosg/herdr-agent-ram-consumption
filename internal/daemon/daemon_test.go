@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strconv"
@@ -340,5 +341,57 @@ func TestFirstSightClearRetriedAfterFailedReport(t *testing.T) {
 	_ = d.Tick(ctx)
 	if len(h.reports) != 2 || len(h.reports[1].clear) != 4 {
 		t.Errorf("reports = %+v", h.reports)
+	}
+}
+
+type logRecorder struct{ lines []string }
+
+func (l *logRecorder) log(f string, a ...any) { l.lines = append(l.lines, fmt.Sprintf(f, a...)) }
+
+func withLog(d *Daemon) *logRecorder {
+	l := &logRecorder{}
+	d.d.Log = l.log
+	return l
+}
+
+func TestDepartedClearFailureLoggedOncePerDistinctError(t *testing.T) {
+	h, det := oneClaude(17)
+	d := newDaemon(h, func(string) agentctx.Detector { return det })
+	l := withLog(d)
+	ctx := context.Background()
+	_ = d.Tick(ctx)
+	h.agents = nil
+	h.clearErr = map[string]error{"p1": errors.New("boom")}
+	for i := 0; i < 4; i++ {
+		_ = d.Tick(ctx)
+	}
+	if len(l.lines) != 1 {
+		t.Fatalf("same error logged %d times: %q", len(l.lines), l.lines)
+	}
+	h.clearErr = map[string]error{"p1": errors.New("other")}
+	_ = d.Tick(ctx)
+	if len(l.lines) != 2 {
+		t.Errorf("a different error must be logged: %q", l.lines)
+	}
+}
+
+func TestPaneErrorLoggedOnceUntilItChanges(t *testing.T) {
+	h, det := oneClaude(17)
+	d := newDaemon(h, func(string) agentctx.Detector { return det })
+	l := withLog(d)
+	ctx := context.Background()
+	h.infoErr = map[string]error{"p1": errors.New("boom")}
+	for i := 0; i < 3; i++ {
+		_ = d.Tick(ctx)
+	}
+	if len(l.lines) != 1 {
+		t.Fatalf("same pane error logged %d times: %q", len(l.lines), l.lines)
+	}
+	h.infoErr = nil
+	_ = d.Tick(ctx)
+	h.infoErr = map[string]error{"p1": errors.New("boom")}
+	_ = d.Tick(ctx)
+	if len(l.lines) != 2 {
+		t.Errorf("an error after recovery must be logged again: %q", l.lines)
 	}
 }

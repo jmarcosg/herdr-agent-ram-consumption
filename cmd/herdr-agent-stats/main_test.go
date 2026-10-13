@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -215,5 +218,30 @@ func TestManifestRestartDetachesDaemon(t *testing.T) {
 	want := `command = ["sh", "-c", "./herdr-agent-stats stop; nohup ./herdr-agent-stats daemon </dev/null >/dev/null 2>&1 &"]`
 	if !bytes.Contains(b, []byte(want)) {
 		t.Errorf("restart action must detach the daemon; manifest lacks %s", want)
+	}
+}
+
+func TestTickErrorsLoggedOnceThenRecovered(t *testing.T) {
+	var lines []string
+	e := &errorLog{logf: func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }}
+	boom := errors.New("boom")
+	for i := 0; i < 3; i++ {
+		e.observe(boom)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("repeated error logged %d times: %q", len(lines), lines)
+	}
+	e.observe(errors.New("other"))
+	if len(lines) != 2 {
+		t.Fatalf("a different error must be logged: %q", lines)
+	}
+	e.observe(nil)
+	e.observe(nil)
+	if len(lines) != 3 || !strings.Contains(lines[2], "recovered") {
+		t.Fatalf("want a single recovered line: %q", lines)
+	}
+	e.observe(boom)
+	if len(lines) != 4 {
+		t.Errorf("a failure after recovery must be logged again: %q", lines)
 	}
 }

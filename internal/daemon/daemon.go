@@ -9,6 +9,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jmarcosg/herdr-agent-ram-consumption/internal/agentctx"
@@ -48,8 +49,9 @@ var knownTokens = []string{"agent_model", "agent_ctx_ok", "agent_ctx_warn", "age
 
 // Daemon holds per-pane state. It is not safe for concurrent use.
 type Daemon struct {
-	d     Deps
-	panes map[string]*paneState
+	d      Deps
+	panes  map[string]*paneState
+	logged map[string]string // last error logged per source, to log each once
 }
 
 // New returns a Daemon using d.
@@ -57,7 +59,7 @@ func New(d Deps) *Daemon {
 	if d.Log == nil {
 		d.Log = func(string, ...any) {}
 	}
-	return &Daemon{d: d, panes: map[string]*paneState{}}
+	return &Daemon{d: d, panes: map[string]*paneState{}, logged: map[string]string{}}
 }
 
 // Tick polls once and reports token changes. It fails only when the agent list
@@ -70,8 +72,11 @@ func (d *Daemon) Tick(ctx context.Context) error {
 	seen := make(map[string]bool, len(agents))
 	for _, a := range agents {
 		seen[a.PaneID] = true
-		if err := d.tickPane(ctx, a); err != nil {
-			d.d.Log("pane %s: %v", a.PaneID, err)
+		d.logOnce("pane "+a.PaneID, d.tickPane(ctx, a), "pane %s: %v", a.PaneID)
+	}
+	for k := range d.logged {
+		if id, ok := strings.CutPrefix(k, "pane "); ok && !seen[id] {
+			delete(d.logged, k)
 		}
 	}
 	// The agent left but its pane may survive: clear what we wrote. Keep the
@@ -89,11 +94,27 @@ func (d *Daemon) Tick(ctx context.Context) error {
 		cancel()
 		if err == nil || errors.Is(err, herdr.ErrPaneGone) {
 			delete(d.panes, id)
+			delete(d.logged, "departed "+id)
 			continue
 		}
-		d.d.Log("pane %s: clear departed: %v", id, err)
+		d.logOnce("departed "+id, err, "pane %s: clear departed", id)
 	}
 	return nil
+}
+
+// logOnce logs err (prefixed by format and args, then ": err") only when it
+// differs from the last one logged for key, so a persistent failure does not
+// fill the log every tick. A nil err re-arms the key.
+func (d *Daemon) logOnce(key string, err error, format string, args ...any) {
+	if err == nil {
+		delete(d.logged, key)
+		return
+	}
+	if d.logged[key] == err.Error() {
+		return
+	}
+	d.logged[key] = err.Error()
+	d.d.Log(format+": %v", append(args, err)...)
 }
 
 func (d *Daemon) tickPane(ctx context.Context, a herdr.Agent) error {

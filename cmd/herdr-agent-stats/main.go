@@ -174,9 +174,11 @@ func runDaemon(ctx context.Context, dir string, d ticker, every time.Duration) e
 	}
 	defer os.Remove(pidFile)
 
+	tickErrs := &errorLog{logf: log.Printf}
 	tick := func() {
-		if err := d.Tick(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("tick: %v", err)
+		err := d.Tick(ctx)
+		if ctx.Err() == nil {
+			tickErrs.observe(err)
 		}
 	}
 	tick()
@@ -196,6 +198,24 @@ func runDaemon(ctx context.Context, dir string, d ticker, every time.Duration) e
 		case <-nudge:
 			tick()
 		}
+	}
+}
+
+// errorLog logs a repeating failure once, and a single line when it ends.
+type errorLog struct {
+	logf    func(format string, args ...any)
+	last    string
+	failing bool
+}
+
+func (e *errorLog) observe(err error) {
+	switch {
+	case err != nil && (!e.failing || err.Error() != e.last):
+		e.logf("tick: %v", err)
+		e.last, e.failing = err.Error(), true
+	case err == nil && e.failing:
+		e.logf("tick: recovered")
+		e.last, e.failing = "", false
 	}
 }
 
