@@ -33,6 +33,21 @@ func Children(pid int) []int {
 	return slices.Compact(pids)
 }
 
+// All lists every process visible to the caller: the numeric entries of /proc.
+func All() []int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, e := range entries {
+		if n, err := strconv.Atoi(e.Name()); err == nil && n > 0 {
+			pids = append(pids, n)
+		}
+	}
+	return pids
+}
+
 // Footprint is anonymous resident memory plus swap, in bytes.
 func Footprint(pid int) (uint64, bool) {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")

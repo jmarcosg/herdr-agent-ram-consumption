@@ -232,3 +232,13 @@ func TestStatusFootprint(t *testing.T) {
 		})
 	}
 }
+
+func TestAll(t *testing.T) {
+	cmd := start(t, "", "sleep", "5")
+	got := All()
+	for _, want := range []int{os.Getpid(), cmd.Process.Pid} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("All() = %d pids, missing %d", len(got), want)
+		}
+	}
+}

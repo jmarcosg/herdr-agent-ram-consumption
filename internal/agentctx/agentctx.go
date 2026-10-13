@@ -38,4 +38,5 @@ type Host struct {
 	Env         func(pid int) map[string]string // env of another process
 	OpenFiles   func(pid int) []string
 	Descendants func(pid int) []Proc
+	Processes   func() []Proc // every process visible to the user
 }

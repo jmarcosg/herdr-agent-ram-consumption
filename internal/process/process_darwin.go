@@ -12,6 +12,10 @@ static int children(int pid, int *buf, int bytes) {
 	return proc_listchildpids(pid, buf, bytes);
 }
 
+static int all(int *buf, int bytes) {
+	return proc_listallpids(buf, bytes);
+}
+
 static int footprint(int pid, unsigned long long *out) {
 	struct rusage_info_v0 info;
 	if (proc_pid_rusage(pid, RUSAGE_INFO_V0, (rusage_info_t *)&info) != 0) return -1;
@@ -58,6 +62,26 @@ func Children(pid int) []int {
 	if n <= 0 {
 		return nil
 	}
+	if n > len(buf) {
+		n = len(buf)
+	}
+	var pids []int
+	for _, p := range buf[:n] {
+		if p > 0 {
+			pids = append(pids, int(p))
+		}
+	}
+	return pids
+}
+
+// All lists every process visible to the caller.
+func All() []int {
+	buf := make([]C.int, 8192)
+	n := int(C.all(&buf[0], C.int(len(buf)*int(unsafe.Sizeof(buf[0])))))
+	if n <= 0 {
+		return nil
+	}
+	// proc_listallpids returns the number of pids, not bytes.
 	if n > len(buf) {
 		n = len(buf)
 	}
