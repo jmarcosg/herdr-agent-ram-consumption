@@ -1,0 +1,68 @@
+{
+  "id": "cli:agent:list",
+  "result": {
+    "agents": [
+      {
+        "agent": "claude",
+        "agent_session": {
+          "agent": "claude",
+          "kind": "id",
+          "source": "herdr:claude",
+          "value": "c7e84f4c-fa67-4438-b669-5d8081734400"
+        },
+        "agent_status": "idle",
+        "cwd": "/Users/test/dev/minimalart",
+        "focused": false,
+        "foreground_cwd": "/Users/test/dev/minimalart",
+        "pane_id": "wD:pQ",
+        "revision": 417,
+        "state_change_seq": 348,
+        "tab_id": "wD:tA",
+        "terminal_id": "term_65d7c3cc5c21625",
+        "terminal_title": "✳ Perfil de GitHub test",
+        "terminal_title_stripped": "Perfil de GitHub test",
+        "tokens": {
+          "harness_logo": "",
+          "logo_stale": "​  ",
+          "sort_key": "000029860646",
+          "state_idle_stale": "",
+          "tab_key": "000029860646-wD:tA-1-000029860646",
+          "title_idle_stale": "Perfil de GitHub test",
+          "ws_key": "000029865114-wD-1-000029865114-wD"
+        },
+        "workspace_id": "wD"
+      },
+      {
+        "agent": "claude",
+        "agent_session": {
+          "agent": "claude",
+          "kind": "id",
+          "source": "herdr:claude",
+          "value": "180aaa76-0fea-4386-8955-ad8c10b1f16a"
+        },
+        "agent_status": "idle",
+        "cwd": "/Users/test/dev/minimalart",
+        "focused": false,
+        "foreground_cwd": "/Users/test/dev/minimalart",
+        "pane_id": "wD:pY",
+        "revision": 59,
+        "state_change_seq": 353,
+        "tab_id": "wD:tB",
+        "terminal_id": "term_65d8b9dddae6932",
+        "terminal_title": "✳ Issues de Plane en herdr",
+        "terminal_title_stripped": "Issues de Plane en herdr",
+        "tokens": {
+          "gap": "​",
+          "harness_logo": "",
+          "logo": "​  ",
+          "state_idle": "",
+          "tab_key": "000000000000-wD:tB-1-000000000000",
+          "title_idle": "Issues de Plane en herdr",
+          "ws_key": "000029865114-wD-1-000029865114-wD"
+        },
+        "workspace_id": "wD"
+      }
+    ],
+    "type": "agent_list"
+  }
+}

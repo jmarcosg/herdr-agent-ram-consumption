@@ -1,0 +1,83 @@
+{
+  "id": "cli:pane:process_info",
+  "result": {
+    "process_info": {
+      "foreground_process_group_id": 35452,
+      "foreground_processes": [
+        {
+          "argv": [
+            "caffeinate",
+            "-i",
+            "-t",
+            "300"
+          ],
+          "argv0": "caffeinate",
+          "cmdline": "caffeinate -i -t 300",
+          "cwd": "/Users/test/dev/minimalart",
+          "name": "caffeinate",
+          "pid": 48550
+        },
+        {
+          "argv": [
+            "node",
+            "/Users/test/.npm/_npx/9833c18b2d85bc59/node_modules/.bin/playwright-mcp"
+          ],
+          "argv0": "node",
+          "cmdline": "node /Users/test/.npm/_npx/9833c18b2d85bc59/node_modules/.bin/playwright-mcp",
+          "cwd": "/Users/test/dev/minimalart",
+          "name": "node",
+          "pid": 35651
+        },
+        {
+          "argv": [
+            "node",
+            "/Users/test/.npm/_npx/9833c18b2d85bc59/node_modules/.bin/playwright-mcp",
+            "--isolated"
+          ],
+          "argv0": "node",
+          "cmdline": "node /Users/test/.npm/_npx/9833c18b2d85bc59/node_modules/.bin/playwright-mcp --isolated",
+          "cwd": "/Users/test/dev/minimalart",
+          "name": "node",
+          "pid": 35633
+        },
+        {
+          "argv0": "mcp@latest --isolated",
+          "cwd": "/Users/test/dev/minimalart",
+          "name": "node",
+          "pid": 35595
+        },
+        {
+          "argv0": "mcp@latest",
+          "cwd": "/Users/test/dev/minimalart",
+          "name": "node",
+          "pid": 35585
+        },
+        {
+          "argv": [
+            "engram",
+            "mcp",
+            "--tools=agent"
+          ],
+          "argv0": "engram",
+          "cmdline": "engram mcp --tools=agent",
+          "cwd": "/Users/test/dev/minimalart",
+          "name": "engram",
+          "pid": 35584
+        },
+        {
+          "argv": [
+            "claude"
+          ],
+          "argv0": "claude",
+          "cmdline": "claude",
+          "cwd": "/Users/test/dev/minimalart",
+          "name": "2.1.296",
+          "pid": 35452
+        }
+      ],
+      "pane_id": "wD:p11",
+      "shell_pid": 35242
+    },
+    "type": "pane_process_info"
+  }
+}
