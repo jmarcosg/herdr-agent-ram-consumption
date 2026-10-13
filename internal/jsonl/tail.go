@@ -21,6 +21,7 @@ type Tail struct {
 	mtime    time.Time
 	offset   int64
 	skipping bool
+	skipped  bool
 }
 
 // Read returns the complete lines appended since the previous call, without
@@ -51,7 +52,9 @@ func (t *Tail) Read(path string) (lines [][]byte, reset bool, err error) {
 		t.inode != inode || size < t.size || (size == t.size && !mtime.Equal(t.mtime))
 	if reset {
 		*t = Tail{}
-	} else if size == t.size && t.offset == size {
+	}
+	t.skipped = false
+	if !reset && size == t.size && t.offset == size {
 		return nil, false, nil
 	}
 
@@ -68,6 +71,7 @@ func (t *Tail) Read(path string) (lines [][]byte, reset bool, err error) {
 		from := 0
 		if t.skipping || (t.offset == 0 && start > 0) {
 			// Mid-line start: drop the partial first line.
+			t.skipped = t.skipped || t.skipping
 			from = end
 			if i := bytes.IndexByte(buf, '\n'); i >= 0 {
 				from = i + 1
@@ -80,10 +84,15 @@ func (t *Tail) Read(path string) (lines [][]byte, reset bool, err error) {
 		// A whole window with no newline: oversized line, discard through its end.
 		t.offset = start + Window
 		t.skipping = true
+		t.skipped = true
 	}
 	t.seen, t.inode, t.size, t.mtime = true, inode, size, mtime
 	return lines, reset, nil
 }
+
+// Skipped reports whether the most recent Read discarded (part of) an
+// oversized line, so state derived from earlier lines may be stale.
+func (t *Tail) Skipped() bool { return t.skipped }
 
 func splitLines(b []byte) [][]byte {
 	var lines [][]byte

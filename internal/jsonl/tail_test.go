@@ -178,16 +178,25 @@ func TestTailSkipsOversizedLine(t *testing.T) {
 	if err != nil || len(lines) != 0 {
 		t.Fatalf("oversized read: lines=%d err=%v", len(lines), err)
 	}
+	if !tail.Skipped() {
+		t.Fatal("Skipped() = false after discarding an oversized line")
+	}
 	// Ends the oversized line; its remainder must be discarded.
 	appendTo(t, path, "tail\n")
 	lines, _, err = tail.Read(path)
 	if err != nil || len(lines) != 0 {
 		t.Fatalf("remainder read: lines=%d err=%v", len(lines), err)
 	}
+	if !tail.Skipped() {
+		t.Fatal("Skipped() = false after discarding the oversized remainder")
+	}
 	appendTo(t, path, "x\n")
 	got, reset := mustRead(t, &tail, path)
 	if !equal(got, []string{"x"}) || reset {
 		t.Fatalf("got %v reset=%v", got, reset)
+	}
+	if tail.Skipped() {
+		t.Fatal("Skipped() stayed true after a clean read")
 	}
 	for _, l := range got {
 		if bytes.Contains([]byte(l), []byte("oo")) {

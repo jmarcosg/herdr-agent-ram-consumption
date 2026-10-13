@@ -271,10 +271,43 @@ func TestGeminiCLIHomeFromAgentEnv(t *testing.T) {
 }
 
 func TestInvalidSlugIsUnknown(t *testing.T) {
-	for _, slug := range []string{"..", ".", "", "a/b", "../project"} {
-		e := setup(t, fixture(t, "initial.jsonl")+fixture(t, "reply.jsonl"))
-		e.register(slug)
+	good := fixture(t, "initial.jsonl") + fixture(t, "reply.jsonl")
+	cases := []struct{ slug, chats string }{
+		{"..", "chats"},
+		{".", filepath.Join("tmp", "chats")},
+		{"", filepath.Join("tmp", "chats")},
+		{"../project", filepath.Join("project", "chats")},
+	}
+	for _, c := range cases {
+		e := setup(t, good)
+		e.register(c.slug)
+		// A valid chat where the unsafe slug would resolve: only slug
+		// validation can keep it from being read.
+		e.addChat("session-x.jsonl", good, time.Now())
+		writeFile(t, filepath.Join(e.gemini, c.chats, "session-x.jsonl"), good)
 		wantNone(t, e, e.detector())
+	}
+}
+
+func TestOversizedLineDropsStaleReplies(t *testing.T) {
+	e := setup(t, fixture(t, "initial.jsonl")+fixture(t, "reply.jsonl"))
+	d := e.detector()
+	want(t, e, d, "gemini-3.8-flash", 1, true)
+	e.append(`{"$set":{"messages":[{"id":"x","type":"user","content":"` + strings.Repeat("a", 2<<20) + `"}]}}` + "\n")
+	want(t, e, d, "gemini-3.8-flash", 0, false)
+}
+
+func TestNodeLauncherWithFlagsIsGemini(t *testing.T) {
+	for argv, ok := range map[string]bool{
+		"node --no-warnings /x/bin/gemini": true,
+		"node /x/bin/gemini --foo":         true,
+		"/usr/local/bin/gemini":            true,
+		"node --no-warnings /x/bin/other":  false,
+		"/bin/zsh -c gemini":               false,
+	} {
+		if got := isGemini(strings.Fields(argv)); got != ok {
+			t.Errorf("isGemini(%q) = %v, want %v", argv, got, ok)
+		}
 	}
 }
 

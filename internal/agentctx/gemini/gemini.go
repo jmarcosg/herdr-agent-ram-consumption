@@ -107,6 +107,9 @@ func (d *detector) Read(p agentctx.Pane) (agentctx.Reading, bool) {
 			return agentctx.Reading{}, false
 		}
 	}
+	if d.tail.Skipped() { // an oversized line may have been a $set rewrite
+		d.replies = nil
+	}
 	for _, line := range lines {
 		d.apply(line)
 	}
@@ -367,15 +370,24 @@ func realPath(p string) string {
 	return r
 }
 
-// isGemini reports whether one of the first two args is the gemini binary or
-// the script a node launcher runs.
+// isGemini reports whether one of the first two args is the gemini binary, or
+// the script a leading node runs (first non-flag argument after node).
 func isGemini(argv []string) bool {
+	var script string
+	if len(argv) > 0 && filepath.Base(argv[0]) == "node" {
+		for _, a := range argv[1:] {
+			if !strings.HasPrefix(a, "-") {
+				script = a
+				break
+			}
+		}
+	}
 	for _, a := range argv[:min(2, len(argv))] {
 		if filepath.Base(a) == "gemini" {
 			return true
 		}
 	}
-	return false
+	return script != "" && filepath.Base(script) == "gemini"
 }
 
 // validHeader requires a complete first line that is a main (not subagent) chat
