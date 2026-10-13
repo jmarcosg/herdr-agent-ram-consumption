@@ -117,7 +117,14 @@ func (d *Daemon) logOnce(key string, err error, format string, args ...any) {
 	d.d.Log(format+": %v", append(args, err)...)
 }
 
-func (d *Daemon) tickPane(ctx context.Context, a herdr.Agent) error {
+// tickPane handles one pane. A panic in a detector or the memory probe skips
+// that pane for this tick (its state is kept) instead of killing the daemon.
+func (d *Daemon) tickPane(ctx context.Context, a herdr.Agent) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	info, err := d.d.Herdr.ProcessInfo(cctx, a.PaneID)
 	cancel()
@@ -144,7 +151,7 @@ func (d *Daemon) tickPane(ctx context.Context, a herdr.Agent) error {
 
 	var r agentctx.Reading
 	known := false
-	if st.detector != nil {
+	if st.detector != nil && pid > 0 {
 		pane := agentctx.Pane{
 			ID: a.PaneID, Kind: a.Kind, SessionID: a.SessionID,
 			Cwd: a.Cwd, AgentPID: pid, Argv: proc.Argv,
@@ -160,7 +167,11 @@ func (d *Daemon) tickPane(ctx context.Context, a herdr.Agent) error {
 		}
 		r, known = st.detector.Read(pane)
 	}
-	mem, memOK := d.d.Measure(info.ShellPID)
+	var mem uint64
+	memOK := false
+	if info.ShellPID > 0 {
+		mem, memOK = d.d.Measure(info.ShellPID)
+	}
 	return d.report(ctx, a.PaneID, st, Tokens(r, known, mem, memOK))
 }
 

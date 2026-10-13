@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -393,5 +394,64 @@ func TestPaneErrorLoggedOnceUntilItChanges(t *testing.T) {
 	_ = d.Tick(ctx)
 	if len(l.lines) != 2 {
 		t.Errorf("an error after recovery must be logged again: %q", l.lines)
+	}
+}
+
+func TestNoMeasureWhenShellPIDNotPositive(t *testing.T) {
+	h, det := oneClaude(17)
+	info := claudeInfo(10)
+	info.ShellPID = 0
+	h.infos["p1"] = info
+	d := newDaemon(h, func(string) agentctx.Detector { return det })
+	d.d.Measure = func(int) (uint64, bool) { t.Error("Measure called with shell pid 0"); return 1, true }
+	if err := d.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.reports[0].set["agent_mem"]; ok || len(h.reports) != 1 {
+		t.Errorf("reports = %+v", h.reports)
+	}
+}
+
+func TestNoDetectionWhenAgentPIDNotPositive(t *testing.T) {
+	h, det := oneClaude(17)
+	h.infos["p1"] = herdr.ProcessInfo{ShellPID: 1}
+	d := newDaemon(h, func(string) agentctx.Detector { return det })
+	if err := d.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(det.panes) != 0 {
+		t.Errorf("detector read with agent pid 0: %+v", det.panes)
+	}
+	if want := map[string]string{"agent_mem": "1.0 GB"}; !reflect.DeepEqual(h.reports[0].set, want) {
+		t.Errorf("set = %v, want RAM only", h.reports[0].set)
+	}
+}
+
+type panicDet struct{}
+
+func (panicDet) Read(agentctx.Pane) (agentctx.Reading, bool) { panic("kaboom") }
+
+func TestPanickingDetectorSkipsOnlyThatPane(t *testing.T) {
+	h, det := oneClaude(17)
+	h.agents = append(h.agents, herdr.Agent{PaneID: "p2", Kind: "codex"})
+	h.infos["p2"] = claudeInfo(20)
+	d := newDaemon(h, func(kind string) agentctx.Detector {
+		if kind == "codex" {
+			return panicDet{}
+		}
+		return det
+	})
+	l := withLog(d)
+	if err := d.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.reports) != 1 || h.reports[0].pane != "p1" {
+		t.Errorf("reports = %+v, want only p1", h.reports)
+	}
+	if len(l.lines) != 1 || !strings.Contains(l.lines[0], "kaboom") {
+		t.Errorf("log = %q", l.lines)
+	}
+	if _, ok := d.panes["p2"]; !ok {
+		t.Error("panicking pane must keep its state")
 	}
 }
