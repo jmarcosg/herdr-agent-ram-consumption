@@ -72,7 +72,7 @@ func (d *Daemon) Tick(ctx context.Context) error {
 	seen := make(map[string]bool, len(agents))
 	for _, a := range agents {
 		seen[a.PaneID] = true
-		d.logOnce("pane "+a.PaneID, d.tickPane(ctx, a), "pane %s: %v", a.PaneID)
+		d.logOnce("pane "+a.PaneID, d.tickPane(ctx, a), "pane %s", a.PaneID)
 	}
 	for k := range d.logged {
 		if id, ok := strings.CutPrefix(k, "pane "); ok && !seen[id] {

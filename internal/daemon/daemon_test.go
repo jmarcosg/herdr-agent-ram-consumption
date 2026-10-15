@@ -395,6 +395,9 @@ func TestPaneErrorLoggedOnceUntilItChanges(t *testing.T) {
 	if len(l.lines) != 2 {
 		t.Errorf("an error after recovery must be logged again: %q", l.lines)
 	}
+	if want := "pane p1: process info: boom"; l.lines[0] != want {
+		t.Errorf("line = %q, want %q", l.lines[0], want)
+	}
 }
 
 func TestNoMeasureWhenShellPIDNotPositive(t *testing.T) {
