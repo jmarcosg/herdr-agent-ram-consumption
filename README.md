@@ -9,6 +9,8 @@ Opus 5.5 · 17% · 1.2 GB
 
 The context figure turns amber at 75% and red at 90%.
 
+![Agents sidebar with the agent-stats row](docs/images/sidebar.png)
+
 ## Install
 
 Install the plugin from GitHub with herdr's plugin installer:
