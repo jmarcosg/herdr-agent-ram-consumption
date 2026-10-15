@@ -115,6 +115,34 @@ func TestReportPaneGone(t *testing.T) {
 	}
 }
 
+// herdr 0.9.4 prints the error body on stderr with an empty stdout.
+func TestPaneGoneOnStderr(t *testing.T) {
+	var got []string
+	gone := &ExitError{Err: errors.New("exit status 1"),
+		Stderr: []byte(`{"error":{"code":"pane_not_found","message":"pane x not found"},"id":"cli:request"}` + "\n")}
+	c := New("herdr", fake(nil, gone, &got))
+	if _, err := c.ProcessInfo(context.Background(), "x"); !errors.Is(err, ErrPaneGone) {
+		t.Errorf("process info err = %v, want ErrPaneGone", err)
+	}
+	if err := c.ReportTokens(context.Background(), "x", map[string]string{"a": "1"}, nil); err != nil {
+		t.Errorf("report err = %v, want nil", err)
+	}
+}
+
+func TestExecRunnerKeepsStderr(t *testing.T) {
+	_, err := ExecRunner(context.Background(), "sh", "-c", "echo out; printf '\\nfirst\\nsecond\\n' >&2; exit 1")
+	var ee *ExitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("err = %T %v, want *ExitError", err, err)
+	}
+	if string(ee.Stderr) != "\nfirst\nsecond\n" {
+		t.Errorf("stderr = %q", ee.Stderr)
+	}
+	if want := "exit status 1: first"; err.Error() != want {
+		t.Errorf("message = %q, want %q", err.Error(), want)
+	}
+}
+
 func TestReportOtherErrorSurfaces(t *testing.T) {
 	var got []string
 	c := New("herdr", fake(nil, errors.New("exit status 1: boom"), &got))

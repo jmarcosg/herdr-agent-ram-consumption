@@ -55,6 +55,21 @@ func BinPath(getenv func(string) string) string {
 	return "herdr"
 }
 
+// ExitError is a failed herdr run with what it printed on stderr.
+type ExitError struct {
+	Err    error
+	Stderr []byte
+}
+
+func (e *ExitError) Error() string {
+	if msg := firstLine(string(e.Stderr)); msg != "" {
+		return e.Err.Error() + ": " + msg
+	}
+	return e.Err.Error()
+}
+
+func (e *ExitError) Unwrap() error { return e.Err }
+
 // ExecRunner is the production Runner.
 func ExecRunner(ctx context.Context, bin string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
@@ -62,10 +77,7 @@ func ExecRunner(ctx context.Context, bin string, args ...string) ([]byte, error)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		if msg := firstLine(stderr.String()); msg != "" {
-			err = fmt.Errorf("%w: %s", err, msg)
-		}
-		return stdout.Bytes(), err
+		return stdout.Bytes(), &ExitError{Err: err, Stderr: stderr.Bytes()}
 	}
 	return stdout.Bytes(), nil
 }
@@ -110,14 +122,18 @@ type envelope struct {
 }
 
 // call runs herdr and decodes the reply. A JSON error body becomes a Go error
-// whether herdr exited 0 or not (a failing exit still prints it on stdout); a
-// bare non-zero exit carries stderr.
+// whether herdr exited 0 or not, and whether it printed it on stdout or (as
+// herdr 0.9.4 does) on stderr; a bare non-zero exit carries stderr.
 func (c *CLI) call(ctx context.Context, args ...string) (*envelope, error) {
 	out, runErr := c.run(ctx, c.bin, args...)
 	var env envelope
 	// Some commands print nothing on success.
 	if runErr == nil && len(bytes.TrimSpace(out)) == 0 {
 		return &env, nil
+	}
+	var exit *ExitError
+	if len(bytes.TrimSpace(out)) == 0 && errors.As(runErr, &exit) {
+		out = exit.Stderr
 	}
 	jsonErr := json.Unmarshal(bytes.TrimSpace(out), &env)
 	if jsonErr == nil && env.Error != nil {
